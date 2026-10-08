@@ -4,6 +4,10 @@ An independent, Apple Silicon reliability fork of [QuickRecorder by lihaoyun6](h
 
 This app has its own name and bundle identifier (`local.codex.QuickRecorderHardened`) and does not replace the original QuickRecorder. The upstream updater is disabled for this fork. Existing recording modes, formats, separate tracks, QMA packages, and controls are retained.
 
+## Version 1.6.12
+
+Menu-bar clicks now complete on release, with event timestamp tracking and drag cancellation. A single native popup owner preserves presentation across hover changes and delays anchor rebuilds until dismissal. Cleanup happens before presentation. Main/camera popups, nested controls, outside clicks, Escape, selector transitions, compact sizing, and pause display synchronization are covered by focused UI checks. Recording and writer code is unchanged from 1.6.10.
+
 ## Version 1.6.11
 
 The menu-bar event fix now handles both local and remote macOS 27 delivery, using the live pointer position and routing only within the visible Hardened status item. Control registrations are stamped when the view is created, so old view teardown cannot remove new controls. Native hover tracking also preserves the compact layout’s control reveal. The capture and finalization implementation from 1.6.10 is unchanged.

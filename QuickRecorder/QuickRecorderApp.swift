@@ -405,12 +405,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
 }
 
 func closeMainWindow() {
+    StatusBarPopover.shared.closeMain()
     for w in NSApp.windows.filter({ $0.title == "QuickRecorder".local }) {
         w.close()
     }
 }
 
 func closeAllWindow(except: String = "") {
+    StatusBarPopover.shared.close()
     for w in NSApp.windows.filter({
         $0.title != "Item-0" && $0.title != ""
         && !$0.title.lowercased().contains(".qma")

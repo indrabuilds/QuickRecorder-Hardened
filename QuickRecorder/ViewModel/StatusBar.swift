@@ -65,6 +65,10 @@ final class StatusBarHitTest {
         qrLog("unregister \(id)")
     }
 
+    func target(atX x: CGFloat) -> String? {
+        regions.first(where: { $0.value.range.contains(x) })?.key
+    }
+
     /// - Parameter x: pointer position in the hosted view's coordinate space.
     @discardableResult
     func handleClick(atX x: CGFloat) -> Bool {
@@ -180,7 +184,9 @@ struct StatusBarItem: View {
     }
 
     private func cameraAction() {
-        popoverState.isShowing = true
+        if inStatusBar {
+            StatusBarPopover.shared.toggle(SCContext.streamType == nil ? .main : .camera)
+        } else { popoverState.isShowing = true }
     }
 
     private func deviceAction() {
@@ -188,6 +194,11 @@ struct StatusBarItem: View {
             if deviceWindow.isVisible { deviceWindow.close() } else { deviceWindow.orderFront(nil) }
             deviceWindowIsShowing = deviceWindow.isVisible
         }
+    }
+
+    private var floatingPopoverBinding: Binding<Bool> {
+        Binding(get: { !inStatusBar && popoverState.isShowing },
+                set: { if !inStatusBar { popoverState.isShowing = $0 } })
     }
 
     var body: some View {
@@ -286,7 +297,7 @@ struct StatusBarItem: View {
                     }
                 }
                 .padding([.leading,.trailing], 4)
-                .popover(isPresented: $popoverState.isShowing, arrowEdge: .bottom) {
+                .popover(isPresented: floatingPopoverBinding, arrowEdge: .bottom) {
                     CameraPopoverView(closePopover: { popoverState.isShowing = false })
                 }
                 .onReceive(updateTimer) { t in
@@ -350,13 +361,12 @@ struct StatusBarItem: View {
                 })
                 .buttonStyle(.plain)
                 .statusBarHit("panel", enabled: inStatusBar, generation: registrationGeneration, action: cameraAction)
-                .popover(isPresented: $popoverState.isShowing, arrowEdge: .bottom) {
+                .popover(isPresented: floatingPopoverBinding, arrowEdge: .bottom) {
                     if #available(macOS 13, *) {
-                        ContentViewNew().onAppear{ closeAllWindow() }
+                        ContentViewNew()
                     } else {
                         ContentView(fromStatusBar: true)
                             .onAppear{
-                                closeAllWindow()
                                 if isMacOS12 { NSApp.activate(ignoringOtherApps: true) }
                             }
                     }
@@ -368,6 +378,7 @@ struct StatusBarItem: View {
         // status item button can send its action, which is the only way a click is
         // delivered in the menu bar on macOS 27.
         .modifier(EmptyTapGesture(enabled: !inStatusBar))
+        .onChange(of: miniStatusBar) { _ in if inStatusBar { updateStatusBar() } }
         .onHover { hovering in
             // The menu-bar instance uses native pointer tracking; floating
             // controls retain SwiftUI's normal hover path.
@@ -379,30 +390,167 @@ struct StatusBarItem: View {
     }
 }
 
+/// One native owner keeps presentation independent of SwiftUI hover/layout updates.
+final class StatusBarPopover: NSObject, NSPopoverDelegate {
+    enum Kind { case main, camera }
+    static let shared = StatusBarPopover()
+    private let popover = NSPopover()
+    private var kind: Kind?
+    private var menuTracking = false
+    private var deferredStatusRebuild = false
+    private var observers = [NSObjectProtocol]()
+
+    private override init() {
+        super.init()
+        // Dismiss from the same event path that opens the popup, so the opening
+        // menu-server click cannot be mistaken for an outside click.
+        popover.behavior = .applicationDefined
+        popover.animates = false
+        popover.delegate = self
+        let center = NotificationCenter.default
+        observers.append(center.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: .main) { [weak self] _ in self?.menuTracking = true })
+        observers.append(center.addObserver(forName: NSMenu.didEndTrackingNotification, object: nil, queue: .main) { [weak self] _ in self?.menuTracking = false })
+
+    }
+
+    func toggle(_ requested: Kind) {
+        guard let button = statusBarItem?.button, statusBarItem.isVisible else { return }
+        if popover.isShown && kind == requested { close(); return }
+        close()
+        // Cleanup precedes presentation; it must never close the popup being shown.
+        if requested == .main { closeAllWindow() }
+        kind = requested
+        let content: AnyView
+        if requested == .camera {
+            content = AnyView(CameraPopoverView(closePopover: { [weak self] in self?.close() }))
+        } else if #available(macOS 13, *) {
+            content = AnyView(ContentViewNew())
+        } else { content = AnyView(ContentView(fromStatusBar: true)) }
+        popover.contentViewController = NSHostingController(rootView: content)
+        NSApp.activate(ignoringOtherApps: true)
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        popover.contentViewController?.view.window?.makeKey()
+        qrLog("popup shown \(requested) frame=\(String(describing: popover.contentViewController?.view.window?.frame))")
+    }
+
+    func close() {
+        if popover.isShown { popover.performClose(nil) }
+        kind = nil
+    }
+
+    func closeMain() { if kind == .main { close() } }
+
+    func deferStatusRebuildIfShown() -> Bool {
+        guard popover.isShown else { return false }
+        deferredStatusRebuild = true
+        qrLog("status rebuild deferred")
+        return true
+    }
+
+    func refreshForRecordingState() {
+        if (kind == .main && SCContext.streamType != nil) ||
+           (kind == .camera && SCContext.streamType == nil) { close() }
+    }
+
+    func observeMouseDown(at point: NSPoint) {
+        guard popover.isShown, !menuTracking, NSApp.modalWindow == nil,
+              let popupWindow = popover.contentViewController?.view.window else { return }
+        if let anchor = statusBarItem?.button?.window, anchor.frame.contains(point) { return }
+        for window in NSApp.windows where window.isVisible && window.frame.contains(point) {
+            var ancestor: NSWindow? = window
+            while let current = ancestor {
+                if current === popupWindow { return }
+                ancestor = current.parent ?? current.sheetParent
+            }
+        }
+        close()
+    }
+
+    func handleEscape(_ event: NSEvent) -> Bool {
+        if event.modifierFlags.contains(.command), event.keyCode == 48 {
+            close() // Let Command-Tab continue switching applications.
+            return false
+        }
+        guard event.keyCode == 53, popover.isShown, !menuTracking,
+              event.window === popover.contentViewController?.view.window else { return false }
+        close()
+        return true
+    }
+
+    func popoverDidClose(_ notification: Notification) {
+        kind = nil
+        qrLog("popup closed")
+        if deferredStatusRebuild {
+            deferredStatusRebuild = false
+            updateStatusBar()
+        }
+    }
+}
+
 enum StatusBarClickRouting {
     private static var monitor: Any?
     private static var remoteMonitor: Any?
 
+    private static var pending: (id: String, generation: Int)?
+    private static var latestDown = -Double.infinity
+    private static var latestUp = -Double.infinity
+    private static var lastMouseArrival = -Double.infinity
+
     static func install() {
         guard monitor == nil else { return }
-        monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .mouseMoved]) { event in
-            if event.type == .mouseMoved {
-                refreshHover(screenPoint: NSEvent.mouseLocation)
-                return event
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseUp, .mouseMoved, .keyDown]) { event in
+            if event.type == .keyDown {
+                return StatusBarPopover.shared.handleEscape(event) ? nil : event
             }
-            guard let button = statusBarItem?.button,
-                  let window = button.window, event.window === window else { return event }
             refreshHover(screenPoint: NSEvent.mouseLocation)
-            // Consume only a click in this app's status item that was handled.
-            // This prevents the native fallback from firing pause a second time.
-            return route(screenPoint: NSEvent.mouseLocation) ? nil : event
+            if event.type == .mouseMoved { return event }
+            if event.type == .leftMouseDown { StatusBarPopover.shared.observeMouseDown(at: NSEvent.mouseLocation) }
+            return processMouse(event, screenPoint: NSEvent.mouseLocation) ? nil : event
         }
-        // On macOS 27 a hosted status view can receive its mouse down through
-        // the menu-bar server instead of this app's local event queue.
-        remoteMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .mouseMoved]) { event in
+        remoteMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .leftMouseUp, .mouseMoved]) { event in
             refreshHover(screenPoint: NSEvent.mouseLocation)
-            if event.type == .leftMouseDown { route(screenPoint: NSEvent.mouseLocation) }
+            if event.type == .leftMouseDown { StatusBarPopover.shared.observeMouseDown(at: NSEvent.mouseLocation) }
+            if event.type != .mouseMoved { processMouse(event, screenPoint: NSEvent.mouseLocation) }
         }
+    }
+
+    private static func target(at point: NSPoint) -> (String, CGFloat)? {
+        guard statusBarItem?.isVisible == true, let button = statusBarItem?.button,
+              let window = button.window, window.isVisible, window.occlusionState.contains(.visible),
+              window.frame.contains(point), let host = button.subviews.first else { return nil }
+        let x = host.convert(window.convertPoint(fromScreen: point), from: nil).x
+        guard let id = StatusBarHitTest.shared.target(atX: x) else { return nil }
+        return (id, x)
+    }
+
+    @discardableResult
+    static func processMouse(_ event: NSEvent, screenPoint: NSPoint) -> Bool {
+        lastMouseArrival = ProcessInfo.processInfo.systemUptime
+        if event.type == .leftMouseDown {
+            // Duplicate forwarding of the same physical event cannot start a new click.
+            guard event.timestamp > latestDown, event.timestamp > latestUp else { return pending != nil }
+            latestDown = event.timestamp
+            guard !event.modifierFlags.contains(.command), let hit = target(at: screenPoint) else { pending = nil; return false }
+            pending = (hit.0, StatusBarHitTest.shared.generation)
+            return true
+        }
+        guard event.type == .leftMouseUp, event.timestamp > latestUp else { return false }
+        latestUp = event.timestamp
+        let click = pending
+        pending = nil
+        guard let click = click, click.generation == StatusBarHitTest.shared.generation,
+              let hit = target(at: screenPoint), hit.0 == click.id else { return false }
+        // Present popups after release, never in the middle of their opening press.
+        return StatusBarHitTest.shared.handleClick(atX: hit.1)
+    }
+
+    static func nativeActivation() {
+        // Native mouse target/actions are delayed on macOS 27 and can duplicate
+        // already handled events. Keep non-mouse/accessible activation for idle.
+        guard NSEvent.pressedMouseButtons == 0,
+              ProcessInfo.processInfo.systemUptime - lastMouseArrival > 1,
+              SCContext.streamType == nil else { return }
+        StatusBarPopover.shared.toggle(.main)
     }
 
     static func refreshHover(screenPoint: NSPoint) {
@@ -431,17 +579,21 @@ enum StatusBarClickRouting {
 
 extension AppDelegate {
     @objc func statusBarButtonClicked(_ sender: Any?) {
-        StatusBarClickRouting.route(screenPoint: NSEvent.mouseLocation)
+        StatusBarClickRouting.nativeActivation()
     }
 }
 
 func updateStatusBar() {
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+        StatusBarPopover.shared.refreshForRecordingState()
+        PopoverState.shared.isPaused = SCContext.isPaused
         if SCContext.streamType == nil && !ud.bool(forKey: "showMenubar") {
+            StatusBarPopover.shared.close()
             statusBarItem.isVisible = false
             return
         }
         guard let button = statusBarItem.button else { return }
+        if StatusBarPopover.shared.deferStatusRebuildIfShown() { return }
         //let width = SCContext.streamType == nil ? 36 : ((SCContext.streamType == .idevice || SCContext.streamType == .systemaudio) ? 138 : 158)
         StatusBarHitTest.shared.reset()
         let iconView = NSHostingView(rootView: StatusBarItem(inStatusBar: true).padding(.top, isMacOS14 ? -2 : -1))
@@ -454,7 +606,7 @@ func updateStatusBar() {
         // A status item button hosting a subview does not send its action on mouse up on
         // macOS 27; it only does so if mouse down is in the mask. It can then send twice
         // per click, which the debounce in StatusBarHitTest absorbs.
-        button.sendAction(on: [.leftMouseDown])
+        button.sendAction(on: [.leftMouseUp])
         statusBarItem.isVisible = true
         StatusBarClickRouting.install()
         DispatchQueue.main.async { StatusBarClickRouting.refreshHover(screenPoint: NSEvent.mouseLocation) }

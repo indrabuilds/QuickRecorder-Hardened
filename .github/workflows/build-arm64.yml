@@ -24,9 +24,9 @@ jobs:
       - name: Upload app and source
         uses: actions/upload-artifact@v4
         with:
-          name: QuickRecorder-Hardened-1.6.11-arm64
+          name: QuickRecorder-Hardened-1.6.12-arm64
           path: |
-            dist/QuickRecorder-Hardened-1.6.11-*.zip
+            dist/QuickRecorder-Hardened-1.6.12-*.zip
             dist/SHA256SUMS.txt
             dist/LICENSE.txt
             dist/reliability-tests.json

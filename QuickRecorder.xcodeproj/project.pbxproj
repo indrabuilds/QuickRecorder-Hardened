@@ -492,7 +492,7 @@
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 174;
+				CURRENT_PROJECT_VERSION = 175;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "\"QuickRecorder/Preview Content\"";
 				DEVELOPMENT_TEAM = "";
@@ -511,7 +511,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 12.3;
-				MARKETING_VERSION = 1.6.11;
+				MARKETING_VERSION = 1.6.12;
 				PRODUCT_BUNDLE_IDENTIFIER = local.codex.QuickRecorderHardened;
 				PRODUCT_NAME = "QuickRecorder Hardened";
 				INFOPLIST_KEY_CFBundleDisplayName = "QuickRecorder Hardened";
@@ -530,7 +530,7 @@
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 174;
+				CURRENT_PROJECT_VERSION = 175;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "\"QuickRecorder/Preview Content\"";
 				DEVELOPMENT_TEAM = "";
@@ -549,7 +549,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 12.3;
-				MARKETING_VERSION = 1.6.11;
+				MARKETING_VERSION = 1.6.12;
 				PRODUCT_BUNDLE_IDENTIFIER = local.codex.QuickRecorderHardened;
 				PRODUCT_NAME = "QuickRecorder Hardened";
 				INFOPLIST_KEY_CFBundleDisplayName = "QuickRecorder Hardened";
