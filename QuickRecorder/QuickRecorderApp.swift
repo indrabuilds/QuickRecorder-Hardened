@@ -386,7 +386,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, SCStreamDelegate, SCStreamOu
     func openSettingPanel() {
         NSApp.activate(ignoringOtherApps: true)
         if #available(macOS 14, *) {
-            NSApp.mainMenu?.items.first?.submenu?.item(at: 3)?.performAction()
+            if let settings = SettingsMenuLookup.find(in: NSApp.mainMenu) {
+                settings.performAction()
+            } else {
+                createNewWindow(view: SettingsView(), title: "Settings".local, only: false)
+            }
         } else if #available(macOS 13, *) {
             NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
         } else {

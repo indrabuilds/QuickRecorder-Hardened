@@ -160,6 +160,18 @@ func runRoutingUnitChecks() {
     check(!StatusBarClickRouting.processMouse(down, screenPoint: .zero), "press outside item is ignored")
     check(!StatusBarClickRouting.processMouse(up, screenPoint: .zero), "release without target is ignored")
     check(!StatusBarClickRouting.processMouse(down, screenPoint: .zero), "late duplicate press cannot start another click")
+    let menu = NSMenu()
+    menu.addItem(.separator())
+    let localized = NSMenuItem(title: "Pengaturan", action: #selector(NSObject.description), keyEquivalent: ",")
+    localized.keyEquivalentModifierMask = [.command]
+    menu.addItem(localized)
+    check(SettingsMenuLookup.find(in: menu) === localized, "Settings lookup ignores menu position and language")
+    let parent = NSMenu()
+    let container = NSMenuItem(title: "Application", action: nil, keyEquivalent: "")
+    container.submenu = menu
+    parent.addItem(container)
+    check(SettingsMenuLookup.find(in: parent) === localized, "Settings lookup handles submenu")
+    check(SettingsMenuLookup.find(in: nil) == nil, "Missing Settings menu uses fallback")
     print("PASS: \(checks) menu-bar routing checks")
 }
 if ProcessInfo.processInfo.environment["QR_TEST_UNIT"] == "1" {

@@ -390,6 +390,17 @@ struct StatusBarItem: View {
     }
 }
 
+enum SettingsMenuLookup {
+    static func find(in menu: NSMenu?) -> NSMenuItem? {
+        guard let menu = menu else { return nil }
+        for item in menu.items {
+            if item.keyEquivalent == ",", item.keyEquivalentModifierMask.contains(.command), item.action != nil { return item }
+            if let match = find(in: item.submenu) { return match }
+        }
+        return nil
+    }
+}
+
 /// One native owner keeps presentation independent of SwiftUI hover/layout updates.
 final class StatusBarPopover: NSObject, NSPopoverDelegate {
     enum Kind { case main, camera }
