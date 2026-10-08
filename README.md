@@ -4,7 +4,11 @@ An independent, Apple Silicon reliability fork of [QuickRecorder by lihaoyun6](h
 
 This app has its own name and bundle identifier (`local.codex.QuickRecorderHardened`) and does not replace the original QuickRecorder. The upstream updater is disabled for this fork. Existing recording modes, formats, separate tracks, QMA packages, and controls are retained.
 
-## Version 1.6.10
+## Version 1.6.11
+
+The menu-bar event fix now handles both local and remote macOS 27 delivery, using the live pointer position and routing only within the visible Hardened status item. Control registrations are stamped when the view is created, so old view teardown cannot remove new controls. Native hover tracking also preserves the compact layout’s control reveal. The capture and finalization implementation from 1.6.10 is unchanged.
+
+On the target Mac, 66 native clicks passed across full/compact layouts and view rebuilds, with harmless action counters replacing recording actions. Eight routing regression checks cover duplicate delivery and stale registrations. Run `bash scripts/test-statusbar-ui.sh` in an interactive Mac session with existing mouse-event permissions to repeat the native UI test; it does not capture media.
 
 - Explicitly selected microphones use ScreenCaptureKit on macOS 15 and newer. Default microphone and echo cancellation retain their existing capture paths; older macOS retains legacy microphone capture.
 - Stop closes the sample callback gate, awaits writer completion, then releases capture sources. Writer failures are reported and captured files remain available.
