@@ -527,6 +527,10 @@ class SCContext {
                 lastMicrophonePTS = nil
                 recordingOptions = nil
                 recordingFailure = nil
+                vW = nil
+                vwInput = nil
+                awInput = nil
+                micInput = nil
                 lastPTS = nil
                 streamType = nil
                 screen = nil
