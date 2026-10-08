@@ -369,6 +369,9 @@ struct StatusBarItem: View {
         // delivered in the menu bar on macOS 27.
         .modifier(EmptyTapGesture(enabled: !inStatusBar))
         .onHover { hovering in
+            // The menu-bar instance uses native pointer tracking; floating
+            // controls retain SwiftUI's normal hover path.
+            guard !inStatusBar else { return }
             isHovering = hovering
             hideMousePointer = hovering
             hideScreenMagnifier = hovering
