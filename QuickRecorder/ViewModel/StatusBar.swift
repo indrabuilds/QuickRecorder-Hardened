@@ -11,27 +11,17 @@ class PopoverState: ObservableObject {
     static let shared = PopoverState()
     @Published var isShowing: Bool = false
     @Published var isPaused: Bool = false
+    @Published var isStatusBarHovered: Bool = false
 }
 
 /// Coordinate space the status bar controls report their frames in.
 private let statusBarSpace = "QRStatusBar"
 
-/// Click routing for the menu bar item.
-///
-/// As of macOS 27 a view hosted inside an `NSStatusItem`'s button no longer receives
-/// mouse events: the event that reaches the status item's window always reports
-/// `locationInWindow` as the centre of the button regardless of where the click landed,
-/// so SwiftUI can never tell which control was hit and no `Button` action ever fires.
-/// Hover events are still delivered, which is why the item still looks responsive.
-///
-/// The status item button's own target/action *does* fire, and `NSEvent.mouseLocation`
-/// is accurate, so each control records its frame while SwiftUI lays it out and we route
-/// the click to whichever control's horizontal range contains the pointer. The controls
-/// are in a single row, so matching on x alone is enough.
-///
-/// This only applies to the menu bar item. The same view hosted in the floating
-/// "Recording Controller" panel is in an ordinary window and works normally, so it does
-/// not register anything.
+/// Routes menu-bar clicks using the real screen pointer position. macOS 27
+/// supplies a synthetic centre position in the event's locationInWindow.
+/// Local and remote event monitors route before/around hosted-view delivery;
+/// the status button's target/action remains a fallback. Floating controls
+/// use their ordinary SwiftUI buttons.
 let qrStatusBarDebug = ProcessInfo.processInfo.environment["QR_STATUSBAR_DEBUG"] != nil
 
 func qrLog(_ message: @autoclosure () -> String) {
@@ -76,22 +66,25 @@ final class StatusBarHitTest {
     }
 
     /// - Parameter x: pointer position in the hosted view's coordinate space.
-    func handleClick(atX x: CGFloat) {
+    @discardableResult
+    func handleClick(atX x: CGFloat) -> Bool {
         qrLog("handleClick x=\(x) regions=[" + regions.map { "\($0.key):\($0.value.range.lowerBound)...\($0.value.range.upperBound)" }.joined(separator: ", ") + "]")
-        guard let hit = regions.first(where: { $0.value.range.contains(x) }) else { qrLog("  -> no region matched"); return }
+        guard let hit = regions.first(where: { $0.value.range.contains(x) }) else { qrLog("  -> no region matched"); return false }
         // The button can send its action for both mouse down and mouse up depending on
         // how AppKit dispatches it; without this a pause/resume toggle would cancel itself out.
         let now = Date.timeIntervalSinceReferenceDate
-        if let last = lastFired, last.id == hit.key, now - last.time < 0.15 { qrLog("  -> \(hit.key) debounced"); return }
+        if let last = lastFired, last.id == hit.key, now - last.time < 0.15 { qrLog("  -> \(hit.key) debounced"); return true }
         lastFired = (hit.key, now)
         qrLog("  -> firing \(hit.key)")
         hit.value.action()
+        return true
     }
 }
 
 private struct StatusBarHitRegion: ViewModifier {
     let id: String
     let enabled: Bool
+    let generation: Int
     let action: () -> Void
 
     @ViewBuilder
@@ -105,7 +98,6 @@ private struct StatusBarHitRegion: ViewModifier {
                 .allowsHitTesting(false)
                 .background(
                 GeometryReader { geo in
-                    let generation = StatusBarHitTest.shared.generation
                     Color.clear
                         .onAppear {
                             qrLog("onAppear \(id) named=\(geo.frame(in: .named(statusBarSpace))) local=\(geo.frame(in: .local)) global=\(geo.frame(in: .global))")
@@ -124,8 +116,8 @@ private struct StatusBarHitRegion: ViewModifier {
 }
 
 private extension View {
-    func statusBarHit(_ id: String, enabled: Bool, action: @escaping () -> Void) -> some View {
-        modifier(StatusBarHitRegion(id: id, enabled: enabled, action: action))
+    func statusBarHit(_ id: String, enabled: Bool, generation: Int, action: @escaping () -> Void) -> some View {
+        modifier(StatusBarHitRegion(id: id, enabled: enabled, generation: generation, action: action))
     }
 }
 
@@ -157,9 +149,11 @@ func installStatusBarEventProbe() {
 struct StatusBarItem: View {
     /// True only for the instance hosted in the menu bar; see `StatusBarHitTest`.
     var inStatusBar: Bool = false
+    private let registrationGeneration: Int
 
     init(inStatusBar: Bool = false) {
         self.inStatusBar = inStatusBar
+        registrationGeneration = StatusBarHitTest.shared.generation
     }
 
     @State private var deviceWindowIsShowing = true
@@ -206,7 +200,7 @@ struct StatusBarItem: View {
                         .cornerRadius(4)
                     HStack(spacing: 4) {
                         if miniStatusBar {
-                            if isHovering {
+                            if inStatusBar ? popoverState.isStatusBarHovered : isHovering {
                                 Button(action: stopAction, label: {
                                     ZStack {
                                         Image(systemName: "circle.fill")
@@ -220,7 +214,7 @@ struct StatusBarItem: View {
                                     }
                                 })
                                 .buttonStyle(.plain)
-                                .statusBarHit("stop", enabled: inStatusBar, action: stopAction)
+                                .statusBarHit("stop", enabled: inStatusBar, generation: registrationGeneration, action: stopAction)
                                 if SCContext.streamType != .idevice {
                                     Button(action: pauseAction, label: {
                                         Image(systemName: popoverState.isPaused ? "play.circle.fill" : "pause.circle.fill")
@@ -229,7 +223,7 @@ struct StatusBarItem: View {
                                             .frame(width: 16, alignment: .center)
                                     })
                                     .buttonStyle(.plain)
-                                    .statusBarHit("pause", enabled: inStatusBar, action: pauseAction)
+                                    .statusBarHit("pause", enabled: inStatusBar, generation: registrationGeneration, action: pauseAction)
                                 } else {
                                     Button(action: deviceAction, label: {
                                         Image(systemName: "eye.circle.fill")
@@ -239,7 +233,7 @@ struct StatusBarItem: View {
                                             .opacity(deviceWindowIsShowing ? 1 : 0.7)
                                     })
                                     .buttonStyle(.plain)
-                                    .statusBarHit("device", enabled: inStatusBar, action: deviceAction)
+                                    .statusBarHit("device", enabled: inStatusBar, generation: registrationGeneration, action: deviceAction)
                                 }
                                 if SCContext.streamType != .systemaudio && SCContext.streamType != .idevice && SCContext.streamType != .window {
                                     Button(action: cameraAction, label: {
@@ -249,7 +243,7 @@ struct StatusBarItem: View {
                                             .frame(width: 16, alignment: .center)
                                     })
                                     .buttonStyle(.plain)
-                                    .statusBarHit("camera", enabled: inStatusBar, action: cameraAction)
+                                    .statusBarHit("camera", enabled: inStatusBar, generation: registrationGeneration, action: cameraAction)
                                 }
                             } else {
                                 Text(recordingLength)
@@ -272,7 +266,7 @@ struct StatusBarItem: View {
                                     }
                                 })
                                 .buttonStyle(.plain)
-                                .statusBarHit("stop", enabled: inStatusBar, action: stopAction)
+                                .statusBarHit("stop", enabled: inStatusBar, generation: registrationGeneration, action: stopAction)
                                 if SCContext.streamType != .idevice {//&& SCContext.streamType != .systemaudio {
                                     Button(action: pauseAction, label: {
                                         Image(systemName: popoverState.isPaused ? "play.circle.fill" : "pause.circle.fill")
@@ -281,7 +275,7 @@ struct StatusBarItem: View {
                                             .frame(width: 16, alignment: .center)
                                     })
                                     .buttonStyle(.plain)
-                                    .statusBarHit("pause", enabled: inStatusBar, action: pauseAction)
+                                    .statusBarHit("pause", enabled: inStatusBar, generation: registrationGeneration, action: pauseAction)
                                 }
                                 Text(recordingLength)
                                     .foregroundStyle(.white)
@@ -327,7 +321,7 @@ struct StatusBarItem: View {
                                 }.frame(width: 36).padding([.leading,.trailing], 4)
                             })
                             .buttonStyle(.plain)
-                            .statusBarHit("camera", enabled: inStatusBar, action: cameraAction)
+                            .statusBarHit("camera", enabled: inStatusBar, generation: registrationGeneration, action: cameraAction)
                         } else {
                             Button(action: deviceAction, label: {
                                 ZStack {
@@ -341,7 +335,7 @@ struct StatusBarItem: View {
                                 }.frame(width: 36).padding([.leading,.trailing], 4)
                             })
                             .buttonStyle(.plain)
-                            .statusBarHit("device", enabled: inStatusBar, action: deviceAction)
+                            .statusBarHit("device", enabled: inStatusBar, generation: registrationGeneration, action: deviceAction)
                         }
                     }
                 }
@@ -355,7 +349,7 @@ struct StatusBarItem: View {
                     }
                 })
                 .buttonStyle(.plain)
-                .statusBarHit("panel", enabled: inStatusBar, action: cameraAction)
+                .statusBarHit("panel", enabled: inStatusBar, generation: registrationGeneration, action: cameraAction)
                 .popover(isPresented: $popoverState.isShowing, arrowEdge: .bottom) {
                     if #available(macOS 13, *) {
                         ContentViewNew().onAppear{ closeAllWindow() }
@@ -375,6 +369,9 @@ struct StatusBarItem: View {
         // delivered in the menu bar on macOS 27.
         .modifier(EmptyTapGesture(enabled: !inStatusBar))
         .onHover { hovering in
+            // The menu-bar instance uses native pointer tracking; floating
+            // controls retain SwiftUI's normal hover path.
+            guard !inStatusBar else { return }
             isHovering = hovering
             hideMousePointer = hovering
             hideScreenMagnifier = hovering
@@ -382,13 +379,59 @@ struct StatusBarItem: View {
     }
 }
 
+enum StatusBarClickRouting {
+    private static var monitor: Any?
+    private static var remoteMonitor: Any?
+
+    static func install() {
+        guard monitor == nil else { return }
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .mouseMoved]) { event in
+            if event.type == .mouseMoved {
+                refreshHover(screenPoint: NSEvent.mouseLocation)
+                return event
+            }
+            guard let button = statusBarItem?.button,
+                  let window = button.window, event.window === window else { return event }
+            refreshHover(screenPoint: NSEvent.mouseLocation)
+            // Consume only a click in this app's status item that was handled.
+            // This prevents the native fallback from firing pause a second time.
+            return route(screenPoint: NSEvent.mouseLocation) ? nil : event
+        }
+        // On macOS 27 a hosted status view can receive its mouse down through
+        // the menu-bar server instead of this app's local event queue.
+        remoteMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .mouseMoved]) { event in
+            refreshHover(screenPoint: NSEvent.mouseLocation)
+            if event.type == .leftMouseDown { route(screenPoint: NSEvent.mouseLocation) }
+        }
+    }
+
+    static func refreshHover(screenPoint: NSPoint) {
+        let hovered: Bool
+        if statusBarItem?.isVisible == true, let window = statusBarItem?.button?.window {
+            hovered = window.isVisible && window.occlusionState.contains(.visible) && window.frame.contains(screenPoint)
+        } else { hovered = false }
+        guard hovered != PopoverState.shared.isStatusBarHovered else { return }
+        PopoverState.shared.isStatusBarHovered = hovered
+        hideMousePointer = hovered
+        hideScreenMagnifier = hovered
+    }
+
+    @discardableResult
+    static func route(screenPoint: NSPoint) -> Bool {
+        guard statusBarItem?.isVisible == true,
+              let button = statusBarItem?.button, let window = button.window,
+              window.isVisible, window.occlusionState.contains(.visible),
+              window.frame.contains(screenPoint), let host = button.subviews.first else { return false }
+        let pointInWindow = window.convertPoint(fromScreen: screenPoint)
+        let pointInHost = host.convert(pointInWindow, from: nil)
+        qrLog("route pointer=\(screenPoint) host=\(pointInHost)")
+        return StatusBarHitTest.shared.handleClick(atX: pointInHost.x)
+    }
+}
+
 extension AppDelegate {
-    /// Routes a menu bar click to the control under the pointer. See `StatusBarHitTest`.
     @objc func statusBarButtonClicked(_ sender: Any?) {
-        guard let button = statusBarItem?.button, let window = button.window else { qrLog("clicked but no button/window"); return }
-        let xInWindow = NSEvent.mouseLocation.x - window.frame.minX
-        qrLog("clicked mouse=\(NSEvent.mouseLocation) window=\(window.frame) button=\(button.frame) hosting=\(button.subviews.first?.frame.debugDescription ?? "nil")")
-        StatusBarHitTest.shared.handleClick(atX: xInWindow - button.frame.minX)
+        StatusBarClickRouting.route(screenPoint: NSEvent.mouseLocation)
     }
 }
 
@@ -413,6 +456,8 @@ func updateStatusBar() {
         // per click, which the debounce in StatusBarHitTest absorbs.
         button.sendAction(on: [.leftMouseDown])
         statusBarItem.isVisible = true
+        StatusBarClickRouting.install()
+        DispatchQueue.main.async { StatusBarClickRouting.refreshHover(screenPoint: NSEvent.mouseLocation) }
         installStatusBarEventProbe()
         qrLog("updateStatusBar: width=\(getStatusBarWidth()) streamType=\(String(describing: SCContext.streamType)) target=\(String(describing: button.target)) action=\(String(describing: button.action))")
     }

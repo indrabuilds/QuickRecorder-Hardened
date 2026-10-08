@@ -15,7 +15,7 @@ codesign --force --deep --sign - --timestamp=none \
 codesign --verify --deep --strict --verbose=2 "$app" 2>&1 | tee dist/signature.txt
 lipo -archs "$app/Contents/MacOS/QuickRecorder Hardened" | tee dist/architectures.txt
 test "$(cat dist/architectures.txt)" = arm64
-ditto -c -k --sequesterRsrc --keepParent "$app" dist/QuickRecorder-Hardened-1.6.10-arm64.zip
-git archive --format=zip --output=dist/QuickRecorder-Hardened-1.6.10-source.zip HEAD
+ditto -c -k --sequesterRsrc --keepParent "$app" dist/QuickRecorder-Hardened-1.6.11-arm64.zip
+git archive --format=zip --output=dist/QuickRecorder-Hardened-1.6.11-source.zip HEAD
 cp LICENSE dist/LICENSE.txt
-shasum -a 256 dist/QuickRecorder-Hardened-1.6.10-*.zip > dist/SHA256SUMS.txt
+shasum -a 256 dist/QuickRecorder-Hardened-1.6.11-*.zip > dist/SHA256SUMS.txt
