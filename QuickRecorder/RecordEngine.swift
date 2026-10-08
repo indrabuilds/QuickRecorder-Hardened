@@ -331,7 +331,7 @@ extension AppDelegate {
                 try initVideo(conf: conf)
             } else {
                 //SCContext.startTime = Date.now
-                if recordMic && SCContext.microphoneBackend != .screenCaptureKit { startMicRecording() }
+                if recordMic && SCContext.microphoneBackend != .screenCaptureKit { try startMicRecording() }
             }
             try await SCContext.stream.startCapture()
             SCContext.startHealthMonitoring()
@@ -487,14 +487,14 @@ extension AppDelegate {
                 throw RecordingReliabilityError.writer("Cannot add the micInput track.")
             }
             SCContext.vW.add(SCContext.micInput)
-            if SCContext.microphoneBackend != .screenCaptureKit { startMicRecording() }
+            if SCContext.microphoneBackend != .screenCaptureKit { try startMicRecording() }
         }
         if !SCContext.vW.startWriting() {
             throw RecordingReliabilityError.writer(SCContext.vW.error?.localizedDescription ?? "The video writer could not start.")
         }
     }
     
-    func startMicRecording() {
+    func startMicRecording() throws {
         if micDevice == "default" {
             if enableAEC {
                 SCContext.microphoneBackend = .echoCancellation
@@ -504,8 +504,7 @@ extension AppDelegate {
                     case "max": level = .max
                     default: level = .mid
                 }
-                try? SCContext.AECEngine.startAudioStream(enableAEC: enableAEC, duckingLevel: level, audioBufferHandler: { pcmBuffer in
-                    if SCContext.isPaused || SCContext.startTime == nil { return }
+                try SCContext.AECEngine.startAudioStream(enableAEC: enableAEC, duckingLevel: level, audioBufferHandler: { pcmBuffer in
                     if let sample = pcmBuffer.asSampleBuffer {
                         SCContext.appendMicrophoneSample(sample)
                     }
@@ -514,13 +513,16 @@ extension AppDelegate {
                 SCContext.microphoneBackend = .audioEngine
                 let input = SCContext.audioEngine.inputNode
                 let inputFormat = input.inputFormat(forBus: 0)
+                guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0 else {
+                    throw RecordingReliabilityError.invalid("the Default microphone is unavailable")
+                }
                 input.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { buffer, time in
-                    if SCContext.isPaused || SCContext.startTime == nil { return }
                     if let sample = buffer.asSampleBuffer {
                         SCContext.appendMicrophoneSample(sample)
                     }
                 }
-                try! SCContext.audioEngine.start()
+                SCContext.microphoneTapInstalled = true
+                try SCContext.audioEngine.start()
             }
         } else {
             SCContext.microphoneBackend = .captureSession

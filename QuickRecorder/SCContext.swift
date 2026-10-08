@@ -43,6 +43,7 @@ class SCContext {
     static var recordingFailure: String?
     static var captureStartedAt: Date?
     static var lastMicrophoneArrival: Date?
+    static var microphoneTapInstalled = false
     static var microphoneFormat: String?
     static var lastMicrophonePTS: CMTime?
     static var healthTimer: Timer?
@@ -497,7 +498,8 @@ class SCContext {
             }
             switch backend {
             case .audioEngine:
-                audioEngine.inputNode.removeTap(onBus: 0)
+                if microphoneTapInstalled { audioEngine.inputNode.removeTap(onBus: 0) }
+                microphoneTapInstalled = false
                 audioEngine.stop()
             case .echoCancellation: try? AECEngine.stopAudioUnit()
             case .captureSession: AudioRecorder.shared.stop()
