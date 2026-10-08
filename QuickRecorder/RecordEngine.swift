@@ -152,7 +152,8 @@ extension AppDelegate {
         }
         if SCContext.streamType == .systemaudio {
             SCContext.filter = SCContentFilter(display: screen, excludingApplications: [], exceptingWindows: [])
-            prepareAudioRecording()
+            do { try prepareAudioRecording() }
+            catch { SCContext.failRecording("Audio preparation failed: \(error.localizedDescription)"); return }
         }
         Task { await record(filter: SCContext.filter!, fastStart: fastStart) }
     }
@@ -327,7 +328,7 @@ extension AppDelegate {
             }
 #endif
             if !audioOnly {
-                initVideo(conf: conf)
+                try initVideo(conf: conf)
             } else {
                 //SCContext.startTime = Date.now
                 if recordMic && SCContext.microphoneBackend != .screenCaptureKit { startMicRecording() }
@@ -343,7 +344,7 @@ extension AppDelegate {
         if preventSleep { SleepPreventer.shared.preventSleep(reason: "Screen recording in progress") }
     }
 
-    func prepareAudioRecording() {
+    func prepareAudioRecording() throws {
         var fileEnding = audioFormat.rawValue
         var fileType = AVFileType.m4a
         let encorder = fileEnding == AudioFormat.mp3.rawValue ? "aac" : fileEnding
@@ -362,25 +363,28 @@ extension AppDelegate {
             SCContext.filePath2 = "\(path).qma/mic.\(fileEnding)"
             let infoJsonURL = "\(path).qma/info.json".url
             let jsonString = "{\"format\": \"\(fileEnding)\", \"encoder\": \"\(encorder)\", \"exportMP3\": \(audioFormat.rawValue == AudioFormat.mp3.rawValue), \"sysVol\": 1.0, \"micVol\": 1.0}"
-            try? fd.createDirectory(at: SCContext.filePath.url, withIntermediateDirectories: true, attributes: nil)
-            try? jsonString.write(to: infoJsonURL, atomically: true, encoding: .utf8)
+            try fd.createDirectory(at: SCContext.filePath.url, withIntermediateDirectories: false, attributes: nil)
+            try jsonString.write(to: infoJsonURL, atomically: true, encoding: .utf8)
             
-            SCContext.audioFile = try! AVAudioFile(forWriting: SCContext.filePath1.url, settings: SCContext.updateAudioSettings(), commonFormat: .pcmFormatFloat32, interleaved: false)
+            SCContext.audioFile = try AVAudioFile(forWriting: SCContext.filePath1.url, settings: SCContext.updateAudioSettings(), commonFormat: .pcmFormatFloat32, interleaved: false)
 
             let sampleRate = SCContext.getSampleRate() ?? 48000
             let settings = SCContext.updateAudioSettings(rate: sampleRate)
-            SCContext.vW = try? AVAssetWriter.init(outputURL: SCContext.filePath2.url, fileType: fileType)
+            SCContext.vW = try AVAssetWriter.init(outputURL: SCContext.filePath2.url, fileType: fileType)
             SCContext.micInput = AVAssetWriterInput(mediaType: AVMediaType.audio, outputSettings: settings)
             SCContext.micInput.expectsMediaDataInRealTime = true
-            if SCContext.vW.canAdd(SCContext.micInput) { SCContext.vW.add(SCContext.micInput) }
-            if !SCContext.vW.startWriting() {
-                SCContext.failRecording(SCContext.vW.error?.localizedDescription ?? "The microphone writer could not start.")
+            guard SCContext.vW.canAdd(SCContext.micInput) else {
+                throw RecordingReliabilityError.writer("Cannot add the micInput track.")
             }
-            //SCContext.audioFile2 = try! AVAudioFile(forWriting: SCContext.filePath2.url, settings: settings, commonFormat: .pcmFormatFloat32, interleaved: false)
+            SCContext.vW.add(SCContext.micInput)
+            if !SCContext.vW.startWriting() {
+                throw RecordingReliabilityError.writer(SCContext.vW.error?.localizedDescription ?? "The microphone writer could not start.")
+            }
+            //SCContext.audioFile2 = try AVAudioFile(forWriting: SCContext.filePath2.url, settings: settings, commonFormat: .pcmFormatFloat32, interleaved: false)
         } else {
             SCContext.filePath = "\(path).\(fileEnding)"
             SCContext.filePath1 = SCContext.filePath
-            SCContext.audioFile = try! AVAudioFile(forWriting: SCContext.filePath.url, settings: SCContext.updateAudioSettings(), commonFormat: .pcmFormatFloat32, interleaved: false)
+            SCContext.audioFile = try AVAudioFile(forWriting: SCContext.filePath.url, settings: SCContext.updateAudioSettings(), commonFormat: .pcmFormatFloat32, interleaved: false)
         }
     }
 }
@@ -402,7 +406,7 @@ extension SCDisplay {
 }
 
 extension AppDelegate {
-    func initVideo(conf: SCStreamConfiguration) {
+    func initVideo(conf: SCStreamConfiguration) throws {
         SCContext.startTime = nil
 
         let fileEnding = videoFormat.rawValue
@@ -418,7 +422,7 @@ extension AppDelegate {
         } else {
             SCContext.filePath = "\(SCContext.getFilePath()).\(fileEnding)"
         }
-        SCContext.vW = try? AVAssetWriter.init(outputURL: SCContext.filePath.url, fileType: fileType!)
+        SCContext.vW = try AVAssetWriter.init(outputURL: SCContext.filePath.url, fileType: fileType!)
         SCContext.vW?.movieFragmentInterval = CMTime(seconds: 10, preferredTimescale: 600)
         let encoderIsH265 = (encoder.rawValue == Encoder.h265.rawValue) || recordHDR
         let fpsMultiplier: Double = Double(frameRate)/8
@@ -459,12 +463,18 @@ extension AppDelegate {
         SCContext.vwInput = AVAssetWriterInput(mediaType: AVMediaType.video, outputSettings: videoSettings)
         SCContext.vwInput.expectsMediaDataInRealTime = true
         
-        if SCContext.vW.canAdd(SCContext.vwInput) { SCContext.vW.add(SCContext.vwInput) }
+        guard SCContext.vW.canAdd(SCContext.vwInput) else {
+                throw RecordingReliabilityError.writer("Cannot add the vwInput track.")
+            }
+            SCContext.vW.add(SCContext.vwInput)
 
         if #available(macOS 13, *) {
             SCContext.awInput = AVAssetWriterInput(mediaType: AVMediaType.audio, outputSettings: SCContext.updateAudioSettings())
             SCContext.awInput.expectsMediaDataInRealTime = true
-            if SCContext.vW.canAdd(SCContext.awInput) { SCContext.vW.add(SCContext.awInput) }
+            guard SCContext.vW.canAdd(SCContext.awInput) else {
+                throw RecordingReliabilityError.writer("Cannot add the awInput track.")
+            }
+            SCContext.vW.add(SCContext.awInput)
         }
 
         if recordMic {
@@ -473,11 +483,14 @@ extension AppDelegate {
             
             SCContext.micInput = AVAssetWriterInput(mediaType: AVMediaType.audio, outputSettings: settings)
             SCContext.micInput.expectsMediaDataInRealTime = true
-            if SCContext.vW.canAdd(SCContext.micInput) { SCContext.vW.add(SCContext.micInput) }
+            guard SCContext.vW.canAdd(SCContext.micInput) else {
+                throw RecordingReliabilityError.writer("Cannot add the micInput track.")
+            }
+            SCContext.vW.add(SCContext.micInput)
             if SCContext.microphoneBackend != .screenCaptureKit { startMicRecording() }
         }
         if !SCContext.vW.startWriting() {
-            SCContext.failRecording(SCContext.vW.error?.localizedDescription ?? "The video writer could not start.")
+            throw RecordingReliabilityError.writer(SCContext.vW.error?.localizedDescription ?? "The video writer could not start.")
         }
     }
     
@@ -694,8 +707,19 @@ extension AppDelegate {
         print("closing stream with error:\n".local, error,
               "\nthis might be due to the window closing or the user stopping from the sonoma ui".local)
         DispatchQueue.main.async {
-            SCContext.stream = nil
-            SCContext.stopRecording()
+            // Retain the stream until writer finalization is complete, including
+            // a user stop from the macOS sharing controls.
+            SCContext.writerLock.lock()
+            let stopping = SCContext.isStoppingRecording
+            SCContext.writerLock.unlock()
+            guard !stopping else { return }
+            let streamError = error as NSError
+            if streamError.domain == SCStreamError.errorDomain &&
+               streamError.code == SCStreamError.Code.userStopped.rawValue {
+                SCContext.stopRecording()
+            } else {
+                SCContext.failRecording("Capture stopped unexpectedly: \(error.localizedDescription)")
+            }
         }
     }
 }

@@ -158,6 +158,10 @@ struct StatusBarItem: View {
     /// True only for the instance hosted in the menu bar; see `StatusBarHitTest`.
     var inStatusBar: Bool = false
 
+    init(inStatusBar: Bool = false) {
+        self.inStatusBar = inStatusBar
+    }
+
     @State private var deviceWindowIsShowing = true
     @State private var isMainMenuShowing = false
     @State private var isHovering = false

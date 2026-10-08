@@ -441,6 +441,9 @@ class SCContext {
     }
     
     static func pauseRecording() {
+        writerLock.lock()
+        defer { writerLock.unlock() }
+        guard !isStoppingRecording, streamType != nil else { return }
         isPaused.toggle()
         PopoverState.shared.isPaused = isPaused
         if !isPaused {
