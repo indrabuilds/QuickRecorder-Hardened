@@ -1,0 +1,50 @@
+{
+  "originHash" : "a89f15c8917c69baa61d735aebe94d657281ac2cd56f20025c83a6956b56bdb3",
+  "pins" : [
+    {
+      "identity" : "aecaudiostream",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/lihaoyun6/AECAudioStream.git",
+      "state" : {
+        "branch" : "main",
+        "revision" : "0eab971c1dd0420ee84646c71172dd66fa59117c"
+      }
+    },
+    {
+      "identity" : "keyboardshortcuts",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/sindresorhus/KeyboardShortcuts.git",
+      "state" : {
+        "revision" : "7ecc38bb6edf7d087d30e737057b8d8a9b7f51eb",
+        "version" : "2.2.4"
+      }
+    },
+    {
+      "identity" : "matrixcolorselector",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/lihaoyun6/MatrixColorSelector.git",
+      "state" : {
+        "branch" : "main",
+        "revision" : "0853e68c0c9b205ffe6a963f2a56b26e6ceca51a"
+      }
+    },
+    {
+      "identity" : "sparkle",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/sparkle-project/Sparkle",
+      "state" : {
+        "revision" : "0a4caaf7a81eea2cece651ef4b17331fa0634dff",
+        "version" : "2.6.0"
+      }
+    },
+    {
+      "identity" : "swiftlame",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/hidden-spectrum/SwiftLAME.git",
+      "state" : {
+        "revision" : "e8256a8151594f47f103c742f684253c6c44871d"
+      }
+    }
+  ],
+  "version" : 3
+}

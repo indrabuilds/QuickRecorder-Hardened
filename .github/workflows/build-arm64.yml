@@ -1,0 +1,40 @@
+name: Build and verify Apple Silicon app
+on:
+  push:
+    branches: [main, 'codex/**']
+  pull_request:
+  workflow_dispatch:
+concurrency:
+  group: arm64-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Native media reliability checks (100 cycles)
+        run: bash scripts/test-reliability.sh
+      - name: Build and sign Apple Silicon release
+        run: bash scripts/build-arm64.sh
+      - name: Upload app and source
+        uses: actions/upload-artifact@v4
+        with:
+          name: QuickRecorder-Hardened-1.6.10-arm64
+          path: |
+            dist/QuickRecorder-Hardened-1.6.10-*.zip
+            dist/SHA256SUMS.txt
+            dist/LICENSE.txt
+            dist/reliability-tests.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-diagnostics
+          path: dist/
+          if-no-files-found: ignore
+          retention-days: 14
